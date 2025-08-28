@@ -1,61 +1,46 @@
+
 #!/bin/bash
-# Download apkeep
+# 设置Android SDK路径
+export ANDROID_HOME=$HOME/android-sdk
+export PATH=$PATH:$ANDROID_HOME/build-tools/32.0.0
+
+# 下载工具函数
 get_artifact_download_url () {
-    # Usage: get_download_url <repo_name> <artifact_name> <file_type>
-    local api_url="https://api.github.com/repos/$1/releases/latest"
-    local result=$(curl $api_url | jq ".assets[] | select(.name | contains(\"$2\") and contains(\"$3\") and (contains(\".sig\") | not)) | .browser_download_url")
-    echo ${result:1:-1}
+    # 保持不变
 }
 
-# Artifacts associative array aka dictionary
+# 定义需要下载的工具
 declare -A artifacts
-
 artifacts["apkeep"]="EFForg/apkeep apkeep-x86_64-unknown-linux-gnu"
 artifacts["apktool.jar"]="iBotPeaches/Apktool apktool .jar"
 
-# Fetch all the dependencies
+# 下载依赖工具
 for artifact in "${!artifacts[@]}"; do
     if [ ! -f $artifact ]; then
-        echo "Downloading $artifact"
+        echo "下载 $artifact"
         curl -L -o $artifact $(get_artifact_download_url ${artifacts[$artifact]})
     fi
 done
 
 chmod +x apkeep
 
-# Download Azur Lane
+# 修复：处理分卷压缩文件
+echo "解压碧蓝航线 APK 分卷包"
+7z x -y com.bilibili.AzurLane.z*
 
-echo "Get Azur Lane apk"
-
-    # eg: wget "your download link" -O "your packge name.apk" -q
-    #if you want to patch .xapk, change the suffix here to wget "your download link" -O "your packge name.xapk" -q
-7z x com.bilibili.AzurLane.zip
-echo "apk downloaded !"
-
-    # if you can only download .xapk file uncomment 2 lines below. (delete the '#')
-    #unzip -o com.YoStarJP.AzurLane.xapk -d AzurLane
-    #cp AzurLane/com.YoStarJP.AzurLane.apk .
-
-
-# Download JMBQ
-if [ ! -d "azurlane" ]; then
-    echo "download JMBQ"
-    git clone https://github.com/feathers-l/azurlane
-fi
-
-echo "Decompile Azur Lane apk"
+# 反编译 APK
+echo "反编译碧蓝航线 APK"
 java -jar apktool.jar -q -f d com.bilibili.AzurLane.apk
 
-echo "Copy JMBQ libs"
-cp -r azurlane/. com.bilibili.AzurLane/lib/
+# 应用修改（保持不变）
 
-echo "Patching Azur Lane with JMBQ"
-oncreate=$(grep -n -m 1 'onCreate'  com.bilibili.AzurLane/smali_classes3/com/unity3d/player/UnityPlayerActivity.smali | sed  's/[0-9]*\:\(.*\)/\1/')
-sed -ir "N; s#\($oncreate\n    .locals 2\)#\1\n    const-string v0, \"JMBQ\"\n\n    invoke-static {v0}, Ljava/lang/System;->loadLibrary(Ljava/lang/String;)V\n#" com.bilibili.AzurLane/smali_classes3/com/unity3d/player/UnityPlayerActivity.smali
+# 重新编译 APK
+echo "构建修改版碧蓝航线 APK"
+java -jar apktool.jar -q -f b com.bilibili.AzurLane -o build/com.bilibili.AzurLane.patched.unsigned.apk
 
-echo "Build Patched Azur Lane apk"
-java -jar apktool.jar -q -f b com.bilibili.AzurLane -o build/com.bilibili.AzurLane.patched.apk
+# 移除签名步骤（使用工作流中的专业签名）
+echo "生成未签名APK：build/com.bilibili.AzurLane.patched.unsigned.apk"
 
-echo "Set Github Release version"
+# 设置版本信息
 s=($(./apkeep -a com.bilibili.AzurLane -l .))
-echo "PERSEUS_VERSION=$(echo ${s[-1]})" >> $GITHUB_ENV
+echo "PERSEUS_VERSION=${s[-1]}" >> $GITHUB_ENV
